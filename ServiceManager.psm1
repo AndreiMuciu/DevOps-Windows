@@ -254,5 +254,5 @@ function Start-ServiceMonitor {
 }
  
 # Export functions for use by megascript
-Export-ModuleMember -Function Manage-Services,Start-ServiceMonitor
+Export-ModuleMember -Function Manage-Services, Monitor-Processes, Get-PerformanceData, Start-ServiceMonitor
 
