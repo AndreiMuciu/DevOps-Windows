@@ -6,6 +6,15 @@ function Manage-Services {
         [switch]$RestartStopped
     )
    
+    # Warn if not running elevated (some services require admin to start/stop)
+    try {
+        $wi = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $wp = New-Object Security.Principal.WindowsPrincipal($wi)
+        if (-not $wp.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
+            Write-Warning "You are not running PowerShell as Administrator. Some service operations may fail."
+        }
+    } catch { }
+
     # Your code here
     # Hint: Use Get-Service and Set-Service
     # Use if/else to check critical service status
@@ -25,11 +34,31 @@ function Manage-Services {
             Write-Host "Service '$($service.Name)' is stopped!" -ForegroundColor Red
             if ($RestartStopped) {
                 try {
-                    Start-Service -Name $service.Name
-                    Write-Host "Service '$($service.Name)' started successfully." -ForegroundColor Green
+                    # If startup type is Disabled, try set it to Manual before starting
+                    try {
+                        if ($service.StartType -eq 'Disabled') {
+                            Write-Host "Service '$($service.Name)' is Disabled. Changing StartupType to Manual..." -ForegroundColor Yellow
+                            Set-Service -Name $service.Name -StartupType Manual -ErrorAction Stop
+                        }
+                    } catch {
+                        throw "Unable to change StartupType for '$($service.Name)': $($_.Exception.Message)"
+                    }
+
+                    # Attempt start with terminating error behavior
+                    Start-Service -Name $service.Name -ErrorAction Stop
+
+                    # Verify it actually reached Running state (up to 10s)
+                    $svc = Get-Service -Name $service.Name -ErrorAction Stop
+                    try { $svc.WaitForStatus('Running', (New-TimeSpan -Seconds 10)) } catch { }
+                    $svc.Refresh()
+                    if ($svc.Status -eq 'Running') {
+                        Write-Host "Service '$($service.Name)' started successfully." -ForegroundColor Green
+                    } else {
+                        throw "Service '$($service.Name)' did not reach Running state (current: $($svc.Status))."
+                    }
                 }
                 catch {
-                    Write-Host "Failed to start service '$($service.Name)': $_" -ForegroundColor Red
+                    Write-Host "Failed to start service '$($service.Name)': $($_.Exception.Message)" -ForegroundColor Red
                 }
             }
         } else {
