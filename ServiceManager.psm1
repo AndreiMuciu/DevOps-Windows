@@ -246,12 +246,59 @@ function Get-PerformanceData {
 # Main function that orchestrates service and process monitoring
 function Start-ServiceMonitor {
     Write-Host "=== Service & Process Monitor Starting ===" -ForegroundColor Blue
-   
-    # Call your functions here in logical order
-    # Display service status, process info, and performance data
-   
+    
+    # 1. Manage critical services
+    $serviceResults = Manage-Services -RestartStopped
+    $stoppedServices = ($serviceResults | Where-Object { $_.Status -ne "Running" }).Count
+    if ($stoppedServices -gt 0) {
+        Write-Host "⚠ $stoppedServices critical services are not running!" -ForegroundColor Red
+    }
+
+    # 2. Collect performance data
+    $perfData = Get-PerformanceData
+    $cpuUsage = $perfData.CPU
+    $memUsage = $perfData.Memory.UsagePercent
+    
+    if ($cpuUsage -gt 90 -or $memUsage -gt 95 -or $stoppedServices -gt 0) {
+        $color = "Red"
+    } elseif ($cpuUsage -gt 70 -or $memUsage -gt 80) {
+        $color = "Yellow"
+    } else {
+        $color = "Green"
+    }
+    
+    Write-Host "CPU Usage: $cpuUsage%" -ForegroundColor $color
+    Write-Host "Memory Usage: $memUsage%" -ForegroundColor $color
+
+    # 3. Monitor processes
+    $processResults = Monitor-Processes -MonitoringSeconds 10 -MemoryThresholdMB 500
+    $processAlerts = $processResults.OffenderSummary.Count
+
+    # 4. Health score calculation
+    $healthScore = 100
+    $healthScore -= ($stoppedServices * 25)
+    if ($cpuUsage -gt 80) { $healthScore -= 10 }
+    if ($memUsage -gt 90) { $healthScore -= 10 }
+    $healthScore -= ($processAlerts * 5)
+    if ($healthScore -lt 0) { $healthScore = 0 }
+
+    # 5. Build final result
+    $result = [PSCustomObject]@{
+        OverallHealthScore = $healthScore
+        ServiceStatus      = $serviceResults
+        PerformanceData    = $perfData
+        ProcessAlerts      = $processResults.OffenderSummary
+        Recommendations    = @("Review stopped services", "Check high-usage processes")
+        MonitorTime        = Get-Date
+    }
+
     Write-Host "=== Service & Process Monitor Complete ===" -ForegroundColor Blue
+    return $result
 }
+
+# Export everything useful
+Export-ModuleMember -Function Manage-Services,Monitor-Processes,Get-PerformanceData,Start-ServiceMonitor
+
  
 # Export functions for use by megascript
 Export-ModuleMember -Function Manage-Services,Start-ServiceMonitor
